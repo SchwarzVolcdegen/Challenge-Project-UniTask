@@ -21,12 +21,14 @@ public class MainController : MonoBehaviour
     public Button fadeButton;
     public Button runAllButton;
     public Button animatedButton;
+    public Button cancelButton;
     public GameObject animationControlUI;
     public TextMeshProUGUI currentAnimationText;
     public Vector3 targetScale;
     public Sprite[] sprites;
 
     [SerializeField] private Button currentActionControlButton;
+    [SerializeField] private CancellationTokenSource _cts;
     [SerializeField] private bool isAnimating = false;
     [SerializeField] private bool pauseAnimationFlag = false;
     [SerializeField] private bool resetButtonFlag = true;
@@ -51,6 +53,7 @@ public class MainController : MonoBehaviour
     }
     void Start()
     {
+        _cts = new CancellationTokenSource();
         AddListenerToButton(playButton);
         AddListenerToButton(pauseButton);
         AddListenerToButton(resetButton);
@@ -61,13 +64,14 @@ public class MainController : MonoBehaviour
         AddListenerToButton(fadeButton);
         AddListenerToButton(animatedButton);
         AddListenerToButton(runAllButton);
+        AddListenerToButton(cancelButton);
     }
 
     // Update is called once per frame
     void Update()
     {
         resetButton.interactable = resetButtonFlag;
-        
+
     }
 
     void OnDisable()
@@ -82,13 +86,19 @@ public class MainController : MonoBehaviour
         RemoveAllListenerOfButton(fadeButton);
         RemoveAllListenerOfButton(animatedButton);
         RemoveAllListenerOfButton(runAllButton);
+        RemoveAllListenerOfButton(cancelButton);
     }
 
     private void ButtonClicked(Button button)
     {
         if (isAnimating)
         {
-            return;
+            if (button.gameObject.tag == "Cancel")
+            {
+                isAnimating = false;
+                CancelAnimation();
+            }
+            else return;
         }
 
 
@@ -109,7 +119,8 @@ public class MainController : MonoBehaviour
                     isAnimating = true;
                     resetButtonFlag = true;
                     pauseAnimationFlag = false;
-                    RunAnimation();
+                    _cts = new CancellationTokenSource();
+                    RunAnimation(_cts.Token);
                     break;
                 case "Pause/Resume Button":
                     pauseAnimationFlag = !pauseAnimationFlag;
@@ -120,6 +131,8 @@ public class MainController : MonoBehaviour
                     break;
                 case "Reset Button":
                     resetButtonFlag = false;
+                    isAnimating = false;
+                    
                     ResetButtonState(animatedButton);
                     break;
             }
@@ -132,34 +145,38 @@ public class MainController : MonoBehaviour
 
     }
 
-    async void RunAnimation()
+    async void RunAnimation(CancellationToken cancellationToken)
     {
         Debug.Log(currentActionControlButton.name + " animation is playing");
+
+
+        if (cancellationToken.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
 
         switch (currentActionControlButton.name)
         {
             case "Scale Button":
-                await ScalingButton(animatedButton, targetScale, 1);
+                await ScalingButton(animatedButton, targetScale, 1, cancellationToken);
                 isAnimating = false;
                 break;
             case "Random Sprite Button":
-                await ChangingToRandomSprites(animatedButton, sprites, 1);
+                await ChangingToRandomSprites(animatedButton, sprites, 1, cancellationToken);
                 isAnimating = false;
                 break;
             case "Jump Button":
-                await JumpButton(animatedButton, 1);
+                await JumpButton(animatedButton, 1, cancellationToken);
                 isAnimating = false;
                 break;
             case "Spin Button":
-                await SpinButton(animatedButton, 1);
+                await SpinButton(animatedButton, 1, cancellationToken);
                 isAnimating = false;
                 break;
             case "Fade Button":
-                await FadeButton(animatedButton, 1);
+                await FadeButton(animatedButton, 1, cancellationToken);
                 isAnimating = false;
                 break;
             case "Run All Button":
-                await RunAllAnimation(animatedButton);
+                await RunAllAnimation(animatedButton, cancellationToken);
                 isAnimating = false;
                 break;
         }
@@ -203,9 +220,18 @@ public class MainController : MonoBehaviour
         button.transform.position = originalLocation;
     }
 
-    private async UniTask ScalingButton(Button button, Vector3 targetScale, float duration)
+    private void CancelAnimation()
+    {
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+    }
+
+    private async UniTask ScalingButton(Button button, Vector3 targetScale, float duration, CancellationToken cancellationToken)
     {
         Vector3 originalScale = button.transform.localScale;
+
+        if (cancellationToken.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
 
         var scaleUpTween = button.transform.DOScale(targetScale, duration).ToUniTask();
         await scaleUpTween;
@@ -214,11 +240,14 @@ public class MainController : MonoBehaviour
         await scaleDownTween;
     }
 
-    private async UniTask ChangingToRandomSprites(Button button, Sprite[] sprites, float duration)
+    private async UniTask ChangingToRandomSprites(Button button, Sprite[] sprites, float duration, CancellationToken cancellationToken)
     {
         int randomIndex = Random.Range(0, sprites.Length);
         Sprite newSprite = sprites[randomIndex];
         Color buttonColor = button.GetComponent<Image>().color;
+
+        if (cancellationToken.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
 
         var colorChangeTween = button.GetComponent<Image>().DOBlendableColor(buttonColor, duration);
         await colorChangeTween;
@@ -226,11 +255,14 @@ public class MainController : MonoBehaviour
         button.GetComponent<Image>().sprite = newSprite;
     }
 
-    private async UniTask JumpButton(Button button, float duration)
+    private async UniTask JumpButton(Button button, float duration, CancellationToken cancellationToken)
     {
         Vector3 originalPosition = button.transform.position;
         highestJumpLocation = originalPosition;
         highestJumpLocation.y = originalPosition.y + 300;
+
+        if (cancellationToken.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
 
         var jumpTween = button.transform.DOMove(highestJumpLocation, duration).ToUniTask();
         await jumpTween;
@@ -239,10 +271,13 @@ public class MainController : MonoBehaviour
         await fallbackTween;
     }
 
-    private async UniTask SpinButton(Button button, float duration)
+    private async UniTask SpinButton(Button button, float duration, CancellationToken cancellationToken)
     {
         Quaternion originalRotation = button.transform.rotation;
         float totalRotation = 360f;
+
+        if (cancellationToken.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
 
         var spinTween = button.transform.DORotate(new Vector3(0, 0, totalRotation), duration, RotateMode.FastBeyond360)
             .SetEase(Ease.Linear).ToUniTask();
@@ -250,10 +285,13 @@ public class MainController : MonoBehaviour
 
         button.transform.rotation = originalRotation;
     }
-    private async UniTask FadeButton(Button button, float duration)
+    private async UniTask FadeButton(Button button, float duration, CancellationToken cancellationToken)
     {
         Image buttonImage = button.GetComponent<Image>();
         Color originalColor = buttonImage.color;
+
+        if (cancellationToken.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
 
         var fadeTween = buttonImage.DOColor(new Color(originalColor.r, originalColor.g, originalColor.b, 0), duration)
             .SetEase(Ease.Linear).ToUniTask();
@@ -263,13 +301,17 @@ public class MainController : MonoBehaviour
         await unfadeTween;
     }
 
-    private async UniTask RunAllAnimation(Button button)
+    private async UniTask RunAllAnimation(Button button, CancellationToken cancellationToken)
     {
         Debug.Log(button.name + " is playing all animation");
-        await ScalingButton(button, targetScale, 1);
-        await ChangingToRandomSprites(button, sprites, 1);
-        await JumpButton(button, 1);
-        await SpinButton(button, 1);
-        await FadeButton(button, 1);
+
+        if (cancellationToken.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
+
+        await ScalingButton(button, targetScale, 1, cancellationToken);
+        await ChangingToRandomSprites(button, sprites, 1, cancellationToken);
+        await JumpButton(button, 1, cancellationToken);
+        await SpinButton(button, 1, cancellationToken);
+        await FadeButton(button, 1, cancellationToken);
     }
 }
